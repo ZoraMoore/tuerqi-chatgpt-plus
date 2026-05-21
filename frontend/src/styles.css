@@ -74,7 +74,8 @@ textarea {
 .nav-link,
 .service-card,
 .primary-button,
-.ghost-button {
+.ghost-button,
+.language-toggle {
   border: 0;
 }
 
@@ -97,6 +98,14 @@ textarea {
   place-items: center;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .nav {
   display: flex;
   flex-wrap: wrap;
@@ -115,6 +124,20 @@ textarea {
 .nav-link:hover {
   background: #17201b;
   color: #f5efe3;
+}
+
+.language-toggle {
+  min-height: 40px;
+  border-radius: 999px;
+  padding: 0 14px;
+  background: rgba(31, 128, 91, 0.12);
+  color: #17201b;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.language-toggle:hover {
+  background: rgba(31, 128, 91, 0.2);
 }
 
 .main {
@@ -195,6 +218,11 @@ h1 {
 .primary-button {
   background: #17201b;
   color: #f8f2e7;
+}
+
+.primary-button:disabled {
+  background: #8e9992;
+  color: rgba(248, 242, 231, 0.9);
 }
 
 .ghost-button {
@@ -304,26 +332,204 @@ h1 {
   color: #17201b;
 }
 
-.stock-badge {
-  border-radius: 16px;
-  padding: 12px 14px;
-  font-weight: 800;
+.card-status-panel {
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(23, 32, 27, 0.1);
+  background: rgba(255, 255, 255, 0.68);
 }
 
-.stock-badge.ok {
-  background: rgba(31, 128, 91, 0.12);
-  color: #176340;
+.card-status-panel.ok {
+  border-color: rgba(31, 128, 91, 0.24);
 }
 
-.stock-badge.blocked {
-  background: rgba(155, 28, 28, 0.1);
-  color: #9b1c1c;
+.card-status-panel.blocked {
+  border-color: rgba(155, 28, 28, 0.2);
+}
+
+.card-status-head {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #1f805b 0%, #176340 100%);
+}
+
+.card-status-panel.blocked .card-status-head {
+  background: linear-gradient(135deg, #b94a48 0%, #8f2d2b 100%);
+}
+
+.card-status-head span,
+.card-status-head strong {
+  display: block;
+}
+
+.card-status-head span {
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.card-status-head strong {
+  font-size: 18px;
+}
+
+.card-status-rows {
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.card-status-field {
+  display: grid;
+  grid-template-columns: minmax(84px, 0.62fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.card-status-field span {
+  color: rgba(23, 32, 27, 0.62);
+}
+
+.card-status-field strong {
+  justify-self: end;
+  text-align: right;
+  color: #17201b;
+  overflow-wrap: anywhere;
+}
+
+.account-highlight {
+  color: #9b1c1c !important;
 }
 
 .status-panel,
 .status-rows {
   display: grid;
   gap: 10px;
+}
+
+.subscription-summary {
+  border-radius: 26px;
+  padding: 22px 26px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: #fff;
+  background: linear-gradient(135deg, #2382f2 0%, #5344e7 100%);
+  box-shadow: 0 24px 70px rgba(44, 84, 190, 0.22);
+}
+
+.summary-mark {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.88);
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.subscription-summary strong,
+.subscription-summary small {
+  display: block;
+}
+
+.subscription-summary strong {
+  font-size: 20px;
+}
+
+.subscription-summary small {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.subscription-list {
+  display: grid;
+  gap: 18px;
+}
+
+.subscription-card {
+  border: 1px solid rgba(23, 32, 27, 0.1);
+  border-radius: 28px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 24px 70px rgba(35, 49, 41, 0.1);
+}
+
+.subscription-card.active {
+  border-color: rgba(18, 145, 83, 0.34);
+}
+
+.subscription-card.inactive {
+  border-color: rgba(138, 90, 0, 0.24);
+}
+
+.subscription-card-head {
+  padding: 18px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: #fff;
+  background: linear-gradient(135deg, #23bf66 0%, #07926b 100%);
+}
+
+.subscription-card.inactive .subscription-card-head {
+  background: linear-gradient(135deg, #9a8f7d 0%, #6f766f 100%);
+}
+
+.subscription-card-head strong,
+.subscription-status {
+  display: block;
+}
+
+.subscription-card-head strong {
+  margin-top: 5px;
+  font-size: 20px;
+}
+
+.subscription-status,
+.subscription-index {
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.subscription-index {
+  white-space: nowrap;
+}
+
+.subscription-fields {
+  padding: 20px 22px 22px;
+  display: grid;
+  gap: 14px;
+}
+
+.subscription-field {
+  display: grid;
+  grid-template-columns: minmax(84px, 0.7fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.subscription-field span {
+  color: rgba(23, 32, 27, 0.62);
+}
+
+.subscription-field strong {
+  justify-self: end;
+  text-align: right;
+  color: #17201b;
+}
+
+.field-pill {
+  border-radius: 999px;
+  padding: 7px 14px;
+  color: #2644e8 !important;
+  background: rgba(73, 93, 245, 0.1);
 }
 
 .footer {

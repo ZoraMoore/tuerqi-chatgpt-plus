@@ -4,6 +4,7 @@ export interface CardStatusResponse {
   available: boolean;
   error?: string;
   stock_level?: "high" | "low" | "none" | "";
+  used_email?: string;
 }
 
 export interface TaskCreateResponse {
@@ -20,11 +21,11 @@ export interface TaskStatusResponse {
 }
 
 export interface SubscriptionItem {
-  is_active: boolean;
-  account_name: string;
-  subscription_plan: string;
-  expires_at: string;
-  platform: string;
+  is_active?: boolean;
+  account_name?: string;
+  subscription_plan?: string;
+  expires_at?: string;
+  platform?: string;
 }
 
 export interface CheckAccountResponse {

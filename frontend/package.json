@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "test:display": "tsc --ignoreConfig --noEmit --module ESNext --target ES2020 --moduleResolution Bundler --jsx react-jsx --allowSyntheticDefaultImports --esModuleInterop --skipLibCheck tests/subscriptionDisplay.test.ts tests/cardDisplay.test.ts tests/i18n.test.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
