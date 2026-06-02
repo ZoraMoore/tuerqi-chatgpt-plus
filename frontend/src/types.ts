@@ -1,11 +1,25 @@
 export type TaskStatus = "pending" | "processing" | "completed" | "failed" | "unknown";
+export type ProductApiType = "gpt" | "claude" | string;
 
 export interface CardStatusResponse {
   available: boolean;
   error?: string;
-  stock_level?: "high" | "low" | "none" | "";
+  stock_level?: string;
+  product_api_type?: ProductApiType;
   used_email?: string;
 }
+
+export type CreateTaskPayload =
+  | {
+      card_key: string;
+      access_token: string;
+      idp?: string;
+      force_recharge?: boolean;
+    }
+  | {
+      card_key: string;
+      org_id: string;
+    };
 
 export interface TaskCreateResponse {
   success: boolean;

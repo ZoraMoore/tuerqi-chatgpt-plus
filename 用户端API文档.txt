@@ -1,0 +1,528 @@
+================================================================
+                    用户端 API 使用文档
+================================================================
+
+Base URL：https://api.987ai.vip
+请求格式：Content-Type: application/json
+鉴权方式：无需全局认证头，凭证以请求体字段传入
+文档日期：2026-05-24
+
+----------------------------------------------------------------
+                         接口总览
+----------------------------------------------------------------
+
+ #  | 方法   | 路径                          | 功能                     | 限流
+----|--------|-------------------------------|--------------------------|------------------
+ 1  | GET    | /api/card-keys/:cardCode       | 查询卡密状态（含库存）   | 30次/分钟/IP
+ 2  | POST   | /api/parse-token               | 解析 Access Token        | 30次/分钟/IP
+ 3  | POST   | /api/tasks                     | 创建充值任务             | 30次/分钟/IP
+ 4  | GET    | /api/tasks/:taskId             | 查询单个任务状态         | 60次/分钟/IP
+ 5  | DELETE | /api/tasks/:taskId             | 取消排队中的任务         | 60次/分钟/IP
+ 6  | POST   | /api/tasks/batch               | 批量查询任务状态         | 30次/分钟/IP
+ 7  | POST   | /api/card-keys/batch-query     | 批量查询卡密状态         | 30次/分钟/IP
+ 8  | POST   | /api/check-account             | 查询账号订阅信息         | 1次/10秒/IP
+ 9  | POST   | /api/card-keys/replace         | 旧卡密换新卡密           | 5次/分钟/IP
+
+
+================================================================
+                       详细接口说明
+================================================================
+
+----------------------------------------------------------------
+1. 查询卡密状态（含库存信息）
+----------------------------------------------------------------
+GET /api/card-keys/:cardCode
+
+说明：
+  此接口同时返回卡密可用状态与库存级别信息。
+  库存查询已整合至本接口，无需再单独调用 /api/stock-info（已废弃）。
+  只要卡密存在且绑定了平台账号，无论卡密是否可用，均会尝试返回库存信息。
+  当卡密已被使用时，会额外返回 used_email 字段（原始值，不脱敏）。
+  product_api_type 字段标识卡密所绑定的充值产品类型。
+
+路径参数：
+  cardCode  string  卡密（大写字母+数字）
+
+响应示例：
+  可用（GPT 产品，含库存）：
+  {
+    "available": true,
+    "stock_level": "high",
+    "product_api_type": "gpt"
+  }
+
+  可用（Claude 产品）：
+  {
+    "available": true,
+    "stock_level": "",
+    "product_api_type": "claude"
+  }
+
+  不可用（卡密已使用，携带库存与使用记录）：
+  {
+    "available": false,
+    "error": "卡密已被使用",
+    "stock_level": "low",
+    "product_api_type": "gpt",
+    "used_email": "user@example.com"
+  }
+
+  卡密不存在（无库存信息）：
+  {
+    "available": false,
+    "error": "卡密不存在"
+  }
+
+stock_level 取值：
+  "high"  库存充足（> 100）
+  "low"   库存偏少（1 ~ 100）
+  "none"  库存为空
+  ""      平台账号未开启库存展示，或卡密未绑定平台账号
+
+product_api_type 取值：
+  "gpt"     ChatGPT 充值产品（默认）
+  "claude"  Claude 充值产品
+
+error 取值：
+  "卡密不存在" / "卡密已被使用" / "卡密已停用"
+
+注意：
+  当 product_api_type 为 "claude" 且 available 为 true 时，
+  前端应自动跳转到 Claude 充值流程（使用 org_id 而非 access_token）。
+  GPT 卡密已使用时（available: false + used_email 非空），前端可提示用户
+  复用原账号继续充值；Claude 产品不支持此复用逻辑。
+
+
+----------------------------------------------------------------
+2. 解析 Access Token
+----------------------------------------------------------------
+POST /api/parse-token
+
+请求体：
+  {
+    "access_token": "<ChatGPT Access Token>"
+  }
+
+响应示例：
+  成功：
+  {
+    "success": true,
+    "message": "user@example.com"
+  }
+
+  失败：
+  {
+    "success": false,
+    "message": "Token无效或已过期"
+  }
+
+注意：成功时 message 字段返回的是账号邮箱（脱敏处理）。
+      此接口仅用于 GPT 产品；Claude 产品流程使用 org_id，无需调用本接口。
+
+
+----------------------------------------------------------------
+3. 创建充值任务
+----------------------------------------------------------------
+POST /api/tasks
+
+本接口支持两种产品类型，请求体字段有所不同。
+服务端会根据卡密绑定的 product_api_type 自动判断产品类型并做对应校验。
+
+── GPT 产品 ──────────────────────────────────────────────────
+
+请求体：
+  {
+    "card_key": "ABCD1234",
+    "access_token": "<Access Token 或 UUID 格式的 app_user_id>",
+    "idp": "",
+    "force_recharge": false
+  }
+
+字段说明：
+  card_key        string  是  卡密
+  access_token    string  是  ChatGPT Access Token；
+                              也接受 UUID 格式的 app_user_id 直接使用
+  idp             string  否  登录方式标识，可为空字符串
+  force_recharge  bool    否  是否强制充值（忽略账号类型校验）
+
+GPT 已使用卡密复用充值：
+  当卡密状态为"已使用"（status=1）时，GPT 产品允许复用原充值凭证
+  对同一账号再次充值。此时请求体与普通充值相同，
+  但服务端会使用该卡密原始绑定的凭证（order_no）执行充值，
+  卡密状态不再更新。
+  以下情况不允许复用：
+    - 卡密无关联充值记录（order_no 为空）
+    - 卡密关联的平台账号不存在或已禁用
+
+── Claude 产品 ───────────────────────────────────────────────
+
+请求体：
+  {
+    "card_key": "ABCD1234",
+    "org_id": "<Claude Organization ID>"
+  }
+
+字段说明：
+  card_key  string  是  卡密（需绑定 claude 类型平台）
+  org_id    string  是  Claude Organization ID，UUID 格式
+                        （从 claude.ai/settings 页面获取）
+
+注意：
+  Claude 产品不依赖本地库存，不进行库存校验，由外部 API 决定是否成功。
+  Claude 产品不支持已使用卡密复用充值。
+
+─────────────────────────────────────────────────────────────
+
+响应示例：
+  成功：
+  {
+    "success": true,
+    "task_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  }
+
+  失败（参数/卡密问题）：
+  {
+    "success": false,
+    "error": "卡密不可用"
+  }
+
+  已有任务进行中（HTTP 409）：
+  {
+    "success": false,
+    "error": "该卡密有任务正在处理中，任务ID: <uuid>，请等待处理完成"
+  }
+
+失败 error 取值一览：
+  "无效的请求参数"                              参数缺失或格式错误
+  "卡密不存在"                                  数据库中无此卡密
+  "卡密已停用"                                  卡密状态为2
+  "卡密状态异常"                                未知状态值
+  "请提供 access_token"                         GPT 产品缺少 access_token
+  "AccessToken无效或已过期"                     GPT Token 校验失败
+  "卡密已被使用"                                Claude 产品不支持已使用卡密
+  "卡密已使用但无关联充值记录，无法复用充值"    GPT 复用充值时无 order_no
+  "卡密关联的平台账号不存在"                    GPT 复用充值时账号已删除
+  "卡密关联的平台账号已禁用"                    GPT 复用充值时账号已禁用
+  "无可用库存，请稍后再试"                      GPT 产品库存为0
+  "Claude 充值需要提供 org_id"                  Claude 产品缺少 org_id
+  "org_id 格式不正确，必须为 UUID 格式"         Claude org_id 校验失败
+
+注意：409 冲突时，可从 error 字段正则提取 task_id 继续轮询。
+
+
+----------------------------------------------------------------
+4. 查询单个任务状态
+----------------------------------------------------------------
+GET /api/tasks/:taskId
+
+路径参数：
+  taskId  string  任务 UUID
+
+响应示例：
+  {
+    "status": "pending",
+    "result": "",
+    "error": "",
+    "queue_position": 3
+  }
+
+status 取值：
+  pending     排队等待中
+  processing  处理中
+  completed   已完成
+  failed      失败
+  cancelled   用户已取消排队
+  unknown     任务不存在（内存中已清理，完成后仅保留 10 分钟）
+
+注意：
+  queue_position 仅在 pending 状态时有值（1 表示下一个处理）。
+  任务完成（completed/failed/cancelled）后在内存中保留约 10 分钟，
+  超时后查询返回 unknown。
+  建议轮询间隔：3 秒。
+
+
+----------------------------------------------------------------
+5. 取消排队中的任务
+----------------------------------------------------------------
+DELETE /api/tasks/:taskId
+
+路径参数：
+  taskId  string  任务 UUID
+
+说明：
+  只有 pending（排队等待中）状态的任务可以取消；
+  已在 processing（处理中）的任务无法取消。
+
+响应示例：
+  成功：
+  {
+    "success": true
+  }
+
+  失败：
+  {
+    "success": false,
+    "error": "只有排队中的任务可以取消"
+  }
+
+  任务不存在：
+  {
+    "success": false,
+    "error": "任务不存在"
+  }
+
+
+----------------------------------------------------------------
+6. 批量查询任务状态
+----------------------------------------------------------------
+POST /api/tasks/batch
+
+请求体：
+  {
+    "task_ids": ["uuid1", "uuid2", "..."]
+  }
+
+限制：单次最多 50 个任务 ID。
+
+响应示例：
+  {
+    "results": {
+      "uuid1": {
+        "status": "completed",
+        "result": "任务处理成功",
+        "error": "",
+        "queue_position": 0
+      },
+      "uuid2": {
+        "status": "pending",
+        "result": "",
+        "error": "",
+        "queue_position": 2
+      },
+      "uuid3": {
+        "status": "unknown"
+      }
+    }
+  }
+
+注意：不存在或已过期的任务 ID 对应值为 {"status": "unknown"}。
+
+
+----------------------------------------------------------------
+7. 批量查询卡密状态
+----------------------------------------------------------------
+POST /api/card-keys/batch-query
+
+请求体：
+  {
+    "card_keys": [
+      "ABCD1234",
+      "https://987ai.vip/recharge?code=EFGH5678",
+      "订单号: IJKL9012"
+    ]
+  }
+
+限制：
+  单次最多 500 条
+  每条输入长度不超过 500 字符
+  支持格式：
+    - 原始卡密（如 ABCD1234）
+    - 充值链接（自动提取 code/card 参数）
+    - 带分隔符格式（自动解析最后一段卡密）
+
+响应示例：
+  {
+    "success": true,
+    "message": "查询成功",
+    "data": [
+      {
+        "card_key": "ABCD1234",
+        "status": 0,
+        "status_text": "正常",
+        "link": "https://987ai.vip/recharge?code=ABCD1234",
+        "user_id": "",
+        "account_id": "",
+        "used_at": ""
+      },
+      {
+        "card_key": "EFGH5678",
+        "status": 1,
+        "status_text": "已使用",
+        "link": "https://987ai.vip/recharge?code=EFGH5678",
+        "user_id": "abcdef@gmail.com",
+        "account_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "used_at": "2025-01-01 12:00:00"
+      }
+    ]
+  }
+
+status 取值：
+   0   正常      可用（不返回 user_id / account_id / used_at）
+   1   已使用    返回 user_id（原始值）、account_id 和 used_at（北京时间）
+   2   已停用    返回 user_id（原始值）、account_id 和 used_at（北京时间）
+  -1   无效      无法从输入提取有效卡密
+  -2   不存在    卡密在数据库中不存在
+
+
+----------------------------------------------------------------
+8. 查询 ChatGPT 账号订阅
+----------------------------------------------------------------
+POST /api/check-account
+
+限流：每 IP 每 10 秒最多 1 次（调用外部 API，严格防滥用）
+
+请求体：
+  {
+    "input": "<Access Token 或 AccountID>"
+  }
+
+input 字段支持以下格式（按优先级检测）：
+  1. UUID 格式的 AccountID（如 "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"）
+     → 直接用于查询，跳过 token 解析
+  2. JSON 对象（含 accessToken / access_token / token 字段）
+     → 自动提取其中的 access_token 字段
+  3. 三段式 JWT Access Token（eyJ... 格式）
+     → 直接使用
+  4. Refresh Token（非 JWT 格式）
+     → 自动转换为 Access Token 后再查询
+
+请求体大小限制：8 KB
+
+响应示例：
+  成功：
+  {
+    "success": true,
+    "email": "us**r@example.com",
+    "account_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "entitlements": [
+      {
+        "name": "pro_cat_ios",
+        "expires_date": "2026-01-01 08:00",
+        "purchase_date": "2025-12-01 08:00",
+        "product_identifier": "oai.chatgpt.plus",
+        "is_active": true
+      }
+    ],
+    "subscriptions": [
+      {
+        "product_id": "oai.chatgpt.plus",
+        "expires_date": "2026-01-01 08:00",
+        "store": "App Store",
+        "period_type": "正常订阅",
+        "price_amount": 649.99,
+        "price_currency": "TRY",
+        "offer": "",
+        "offer_type": "",
+        "original_purchase_date": "2025-01-01 08:00",
+        "purchase_date": "2025-12-01 08:00",
+        "refunded_at": "",
+        "billing_issues_detected_at": "",
+        "is_active": true,
+        "is_cancelled": false,
+        "is_refunded": false
+      }
+    ]
+  }
+
+  失败：
+  {
+    "success": false,
+    "message": "获取账号信息失败，请检查 Token 是否有效"
+  }
+
+字段说明：
+  email           账号邮箱（从 JWT Payload 本地提取，脱敏处理；
+                  使用 AccountID 直接查询时为空）
+  account_id      ChatGPT 账号的内部 UUID
+
+  entitlements[]  当前有效授权列表（来自 RevenueCat）：
+    name              授权名称（如 "pro_cat_ios"）
+    expires_date      到期时间（北京时间 "YYYY-MM-DD HH:mm"）
+    purchase_date     购买时间（北京时间）
+    product_identifier  关联产品 ID
+    is_active         是否在有效期内
+
+  subscriptions[] 所有订阅记录列表：
+    product_id                产品 ID（如 "oai.chatgpt.plus"）
+    expires_date              到期时间（北京时间）
+    store                     购买渠道（"App Store" / "Google Play" /
+                              "Stripe" / "未知"）
+    period_type               订阅周期类型（"正常订阅" / "免费试用" /
+                              "优惠期" / "未知"）
+    price_amount              价格金额（数字）
+    price_currency            价格货币（如 "TRY"）
+    offer                     优惠标识（无则为空字符串）
+    offer_type                优惠类型（无则为空字符串）
+    original_purchase_date    首次购买时间（北京时间）
+    purchase_date             当前订阅购买时间（北京时间）
+    refunded_at               退款时间（无则为空字符串）
+    billing_issues_detected_at  账单问题检测时间（无则为空字符串）
+    is_active                 是否在有效期内
+    is_cancelled              是否已取消续订
+    is_refunded               是否已退款
+
+失败 message 取值：
+  "请提供 access_token 或 accountID"     缺少 input 字段
+  "请求内容过大"                           请求体超过 8 KB
+  "无法解析输入，请输入有效的 Token 或 AccountID"
+  "Token 无效，请重新获取后再试"           Refresh Token 转换失败
+  "获取账号信息失败，请检查 Token 是否有效"
+  "查询订阅信息失败，请稍后重试"           RevenueCat 查询失败
+
+
+----------------------------------------------------------------
+9. 自助换卡
+----------------------------------------------------------------
+POST /api/card-keys/replace
+
+请求体：
+  {
+    "old_card_key": "ABCD1234"
+  }
+
+注意：字段自动转换为大写并去除首尾空格。
+
+响应示例：
+  成功：
+  {
+    "success": true,
+    "message": "换卡成功",
+    "data": {
+      "new_card_key": "NEWKEY9999"
+    }
+  }
+
+  失败：
+  {
+    "success": false,
+    "message": "卡密已被使用，无法更换"
+  }
+
+失败场景一览：
+  HTTP 400  无效的请求参数          参数缺失
+  HTTP 400  卡密格式无效            格式不符合规范
+  HTTP 400  卡密不存在              数据库中无此卡密
+  HTTP 400  卡密已被使用，无法更换  状态为已使用
+  HTTP 400  卡密已停用，无法更换    状态为已停用
+  HTTP 409  卡密有任务正在处理中    存在进行中的任务，附带任务 ID
+  HTTP 500  生成新卡密失败，请稍后重试  服务器内部错误
+
+
+================================================================
+                     任务失败错误说明
+================================================================
+
+任务失败时（status: "failed"），error 字段经服务端脱敏处理：
+
+  产品类型  错误场景                    返回内容
+  --------  --------------------------  --------------------------------------------------
+  GPT/Claude  账号已是目标会员类型      充值失败，用户已为XXX，请更换账户（原文返回）
+  GPT/Claude  库存不足                  无可用库存，请稍后再试
+  GPT         其他所有错误              若提交多次还是失败，请打开浏览器的无痕模式重新
+                                        登陆GPT，获取最新的密钥
+  Claude      其他所有错误              充值失败，请联系客服
+
+
+================================================================
+                           END
+================================================================

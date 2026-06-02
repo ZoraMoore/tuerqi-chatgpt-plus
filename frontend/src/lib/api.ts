@@ -1,3 +1,5 @@
+import type { CreateTaskPayload } from "../types";
+
 const API_PREFIX = "/api/v1";
 
 export class ApiError extends Error {
@@ -80,12 +82,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ access_token: accessToken })
     }),
-  createTask: <T>(payload: {
-    card_key: string;
-    access_token: string;
-    idp?: string;
-    force_recharge?: boolean;
-  }) => request<T>("/tasks", { method: "POST", body: JSON.stringify(payload) }),
+  createTask: <T>(payload: CreateTaskPayload) =>
+    request<T>("/tasks", { method: "POST", body: JSON.stringify(payload) }),
   getTaskStatus: <T>(taskId: string) => request<T>(`/tasks/${taskId}`),
   cancelTask: <T>(taskId: string) => request<T>(`/tasks/${taskId}`, { method: "DELETE" })
 };

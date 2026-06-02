@@ -13,7 +13,7 @@
 
 ### 1.2 项目定位
 
-本项目是一个面向 ChatGPT Plus/Team 充值相关服务的自助服务系统。系统基于上游 `https://api.987ai.vip` 用户端 API 封装，提供 React/Vite 前端页面与 FastAPI 后端代理层，并通过 Docker Compose 编排 PostgreSQL 与 Redis 作为后续持久化、限流、队列能力的基础设施。
+本项目是一个面向 GPT 与 Claude 充值相关服务的自助服务系统。系统基于上游 `https://api.987ai.vip` 用户端 API 封装，提供 React/Vite 前端页面与 FastAPI 后端代理层，并通过 Docker Compose 编排 PostgreSQL 与 Redis 作为后续持久化、限流、队列能力的基础设施。
 
 当前仓库定位更接近“可运行 MVP 骨架”：核心用户流程已经具备，生产级安全、限流、持久化、批量充值与完整测试仍需补齐。
 
@@ -32,7 +32,7 @@
 - 后端请求模型：`backend/app/schemas/*.py`
 - 上游请求客户端：`backend/app/services/upstream_client.py`
 - 配置与编排：`.env.example`、`docker-compose.yml`
-- 上游接口文档：`充值API文档.txt`
+- 上游接口文档：`用户端API文档.txt`
 
 ## 2. 当前范围与版本状态
 
@@ -41,7 +41,7 @@
 | 模块 | 当前状态 | 说明 |
 |---|---|---|
 | 首页导航 | 已实现 | 通过前端状态和 History API 实现轻量页面切换 |
-| 自助充值 | 已实现 MVP | 卡密验证、提交任务、轮询状态、取消排队任务 |
+| 自助充值 | 已实现 MVP | GPT/Claude 卡密验证、按产品类型提交任务、轮询状态、取消排队任务 |
 | 卡密查询 | 已实现 MVP | 多行卡密或本站充值链接批量查询 |
 | 查询订阅信息 | 已实现 MVP | 输入 Access Token 查询订阅状态 |
 | 自助换卡 | 已实现 MVP | 输入旧卡密，请求上游生成新卡密 |
@@ -68,7 +68,7 @@
 
 | 用户类型 | 核心诉求 |
 |---|---|
-| 普通充值用户 | 使用卡密和 Access Token/app_user_id 自助发起充值 |
+| 普通充值用户 | 使用 GPT 卡密与 Access Token/app_user_id，或 Claude 卡密与 Claude 用户 ID 自助发起充值 |
 | 卡密持有用户 | 查询卡密是否可用、是否已使用、是否停用 |
 | 订阅查询用户 | 查询 ChatGPT 账号当前订阅状态 |
 | 换卡用户 | 在符合条件时用旧卡密换取新卡密 |
@@ -83,12 +83,13 @@
 3. 输入卡密并点击“验证卡密”。
 4. 前端调用本地后端 `GET /api/v1/cards/{card_code}`。
 5. 后端规范化卡密并代理到上游 `GET /api/card-keys/:cardCode`。
-6. 若卡密可用，用户输入 Access Token 或 app_user_id。
-7. 用户可选择是否启用 `force_recharge`。
-8. 前端调用 `POST /api/v1/tasks` 创建充值任务。
-9. 成功后前端保存 `task_id`，每 3 秒轮询任务状态。
-10. 当状态为 `completed`、`failed` 或 `unknown` 时停止轮询。
-11. 当任务为 `pending` 时，用户可以取消排队。
+6. 若卡密可用，前端根据 `product_api_type` 自动切换 GPT/Claude 表单，用户也可手动切换充值产品。
+7. GPT 流程输入 Access Token 或 app_user_id，可选择是否启用 `force_recharge`。
+8. Claude 流程输入从 `claude.ai/settings/account` 获取的标准 UUID 用户 ID。
+9. 前端调用 `POST /api/v1/tasks` 创建充值任务：GPT 提交 `{ card_key, access_token, idp, force_recharge }`，Claude 提交 `{ card_key, org_id }`。
+10. 成功后前端保存 `task_id`，每 3 秒轮询任务状态。
+11. 当状态为 `completed`、`failed` 或 `unknown` 时停止轮询。
+12. 当任务为 `pending` 时，用户可以取消排队。
 
 #### B. 卡密批量查询
 
@@ -150,14 +151,16 @@
 | 编号 | 功能 | 要求 |
 |---|---|---|
 | FR-R-001 | 卡密输入 | 用户必须输入非空卡密 |
-| FR-R-002 | 卡密验证 | 调用后端卡密状态接口，展示可用性、库存、绑定账号信息 |
-| FR-R-003 | Token 输入 | 支持 Access Token 或 UUID 格式 app_user_id |
-| FR-R-004 | 强制充值 | 支持 `force_recharge`，用于忽略账号类型校验 |
-| FR-R-005 | 创建任务 | 调用后端创建充值任务接口，成功返回 `task_id` |
-| FR-R-006 | 状态轮询 | 根据 `task_id` 每 3 秒查询一次任务状态 |
-| FR-R-007 | 取消排队 | pending 状态下允许取消任务 |
-| FR-R-008 | 状态展示 | 展示状态、队列位置、结果和错误信息 |
-| FR-R-009 | 错误提示 | 网络错误、上游错误和校验错误应有用户可读提示 |
+| FR-R-002 | 卡密验证 | 调用后端卡密状态接口，展示可用性、产品类型、库存、绑定账号信息 |
+| FR-R-003 | GPT 输入 | GPT 流程支持 Access Token 或 UUID 格式 app_user_id |
+| FR-R-004 | Claude 输入 | Claude 流程支持标准 UUID 格式 Claude 用户 ID |
+| FR-R-005 | 产品切换 | 卡密验证后按 `product_api_type` 自动切换 GPT/Claude，且允许用户手动切换 |
+| FR-R-006 | 强制充值 | GPT 流程支持 `force_recharge`，用于忽略账号类型校验；Claude 流程隐藏该选项 |
+| FR-R-007 | 创建任务 | 调用后端创建充值任务接口，成功返回 `task_id` |
+| FR-R-008 | 状态轮询 | 根据 `task_id` 每 3 秒查询一次任务状态 |
+| FR-R-009 | 取消排队 | pending 状态下允许取消任务 |
+| FR-R-010 | 状态展示 | 展示状态、队列位置、结果和错误信息 |
+| FR-R-011 | 错误提示 | 网络错误、上游错误和校验错误应有用户可读提示 |
 
 #### 任务状态
 
@@ -172,13 +175,15 @@
 #### 验收标准
 
 1. 卡密为空时“验证卡密”按钮不可提交或提交被拦截。
-2. Access Token 为空时“确认充值”按钮不可提交。
-3. 卡密验证成功后展示成功提示。
-4. 卡密不可用时展示原因，例如已使用、不存在、已停用。
-5. 创建任务成功后开始自动轮询。
-6. pending 状态展示取消按钮。
-7. completed/failed/unknown 状态停止轮询。
-8. 取消排队成功后清空当前任务状态。
+2. GPT 模式下 Access Token 为空时“确认充值”按钮不可提交。
+3. Claude 模式下 Claude 用户 ID 为空时“确认充值”按钮不可提交，非 UUID 时展示明确错误。
+4. 卡密验证成功后展示成功提示，并根据产品类型自动选中 GPT 或 Claude。
+5. 用户可以通过页面切换按钮手动选择 GPT 或 Claude。
+6. 卡密不可用时展示原因，例如已使用、不存在、已停用。
+7. 创建任务成功后开始自动轮询。
+8. pending 状态展示取消按钮。
+9. completed/failed/unknown 状态停止轮询。
+10. 取消排队成功后清空当前任务状态。
 
 ### 4.3 卡密查询
 
@@ -325,9 +330,10 @@
 | `BatchCardQueryRequest` | `card_keys` | 1-500 条；每条非空且不超过 500 字符；支持本站链接解析 |
 | `ReplaceCardRequest` | `old_card_key` | 非空，最大 100；去空格并转大写 |
 | `CreateTaskRequest` | `card_key` | 非空，最大 100；去空格并转大写 |
-| `CreateTaskRequest` | `access_token` | 非空，最大 50000；去空格 |
+| `CreateTaskRequest` | `access_token` | GPT 流程必填，最大 50000；支持 JSON/片段提取 |
+| `CreateTaskRequest` | `org_id` | Claude 流程必填，必须为标准 UUID；转发上游时只保留 `card_key` 与 `org_id` |
 | `CreateTaskRequest` | `idp` | 可为空，最大 80 |
-| `CreateTaskRequest` | `force_recharge` | 布尔值，默认 false |
+| `CreateTaskRequest` | `force_recharge` | 布尔值，默认 false；仅 GPT 流程转发 |
 | `BatchTasksRequest` | `task_ids` | UUID 列表，1-50 条 |
 
 ### 5.3 响应模型要求

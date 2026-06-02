@@ -14,10 +14,12 @@ import type {
 
 type PageKey = "home" | "recharge" | "query" | "batch" | "check-account" | "replace-card";
 type NoticeTone = "info" | "success" | "warning" | "danger";
+type RechargeProduct = "gpt" | "claude";
 type TranslationValues = Record<string, string | number>;
 type Translator = (key: TranslationKey, values?: TranslationValues) => string;
 
 const LANGUAGE_STORAGE_KEY = "self-service-language";
+const CLAUDE_USER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const pages: Array<{ key: PageKey; labelKey: TranslationKey; descriptionKey: TranslationKey }> = [
   { key: "recharge", labelKey: "navRecharge", descriptionKey: "descRecharge" },
@@ -144,12 +146,16 @@ function HomePage({ onNavigate, t }: { onNavigate: (page: PageKey) => void; t: T
 function RechargePage({ language, t }: { language: Language; t: Translator }) {
   const [cardKey, setCardKey] = useState("");
   const [accessToken, setAccessToken] = useState("");
+  const [claudeUserId, setClaudeUserId] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState<RechargeProduct>("gpt");
   const [forceRecharge, setForceRecharge] = useState(false);
   const [cardStatus, setCardStatus] = useState<CardStatusResponse | null>(null);
   const [taskId, setTaskId] = useState("");
   const [taskStatus, setTaskStatus] = useState<TaskStatusResponse | null>(null);
   const [notice, setNotice] = useState<{ tone: NoticeTone; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const isClaudeProduct = selectedProduct === "claude";
+  const isSubmitDisabled = busy || !cardKey.trim() || (isClaudeProduct ? !claudeUserId.trim() : !accessToken.trim());
 
   useEffect(() => {
     if (!taskId) return;
@@ -178,10 +184,20 @@ function RechargePage({ language, t }: { language: Language; t: Translator }) {
     setBusy(true);
     setNotice(null);
     setCardStatus(null);
+    setTaskId("");
+    setTaskStatus(null);
     try {
       const result = await api.getCardStatus<CardStatusResponse>(cardKey);
       const display = toCardStatusDisplay(result, language);
+      const detectedProduct = rechargeProductFromCard(result);
       setCardStatus(result);
+      setSelectedProduct(detectedProduct);
+      if (detectedProduct === "claude") {
+        setAccessToken("");
+        setForceRecharge(false);
+      } else {
+        setClaudeUserId("");
+      }
       setNotice({
         tone: result.available ? "success" : "warning",
         text: result.available ? t("cardVerifySuccess") : display.statusText
@@ -195,15 +211,17 @@ function RechargePage({ language, t }: { language: Language; t: Translator }) {
 
   async function createTask(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setNotice(null);
+    if (isClaudeProduct && !CLAUDE_USER_ID_PATTERN.test(claudeUserId.trim())) {
+      setNotice({ tone: "warning", text: t("claudeUuidError") });
+      return;
+    }
+    setBusy(true);
     try {
-      const result = await api.createTask<TaskCreateResponse>({
-        card_key: cardKey,
-        access_token: accessToken,
-        idp: "",
-        force_recharge: forceRecharge
-      });
+      const payload = isClaudeProduct
+        ? { card_key: cardKey, org_id: claudeUserId.trim() }
+        : { card_key: cardKey, access_token: accessToken, idp: "", force_recharge: forceRecharge };
+      const result = await api.createTask<TaskCreateResponse>(payload);
       if (!result.success || !result.task_id) {
         setNotice({ tone: "danger", text: result.error ?? t("createTaskFailed") });
         return;
@@ -214,6 +232,14 @@ function RechargePage({ language, t }: { language: Language; t: Translator }) {
       setNotice({ tone: "danger", text: getErrorText(error, t) });
     } finally {
       setBusy(false);
+    }
+  }
+
+  function selectRechargeProduct(product: RechargeProduct) {
+    setSelectedProduct(product);
+    setNotice(null);
+    if (product === "claude") {
+      setForceRecharge(false);
     }
   }
 
@@ -244,19 +270,62 @@ function RechargePage({ language, t }: { language: Language; t: Translator }) {
 
       <form className="panel" onSubmit={createTask}>
         <StepLabel index="02" title={t("submitTokenStep")} />
-        <label className="field-label" htmlFor="access-token">{t("accessTokenLabel")}</label>
-        <textarea
-          id="access-token"
-          required
-          value={accessToken}
-          onChange={(event) => setAccessToken(event.target.value)}
-          placeholder={t("accessTokenPlaceholder")}
-        />
-        <label className="checkbox-row">
-          <input checked={forceRecharge} onChange={(event) => setForceRecharge(event.target.checked)} type="checkbox" />
-          {t("forceRecharge")}
-        </label>
-        <button className="primary-button" disabled={busy || !cardKey.trim() || !accessToken.trim()} type="submit">{t("confirmRecharge")}</button>
+        <div className="segmented-field">
+          <span className="field-label">{t("rechargeProduct")}</span>
+          <div className="segmented-control" role="group" aria-label={t("rechargeProduct")}>
+            <button
+              aria-pressed={!isClaudeProduct}
+              className={!isClaudeProduct ? "segmented-button active" : "segmented-button"}
+              onClick={() => selectRechargeProduct("gpt")}
+              type="button"
+            >
+              {t("rechargeModeGpt")}
+            </button>
+            <button
+              aria-pressed={isClaudeProduct}
+              className={isClaudeProduct ? "segmented-button active" : "segmented-button"}
+              onClick={() => selectRechargeProduct("claude")}
+              type="button"
+            >
+              {t("rechargeModeClaude")}
+            </button>
+          </div>
+        </div>
+        <p className="muted">{isClaudeProduct ? t("claudeRechargeHint") : t("gptRechargeHint")}</p>
+
+        {isClaudeProduct ? (
+          <>
+            <label className="field-label" htmlFor="claude-user-id">{t("claudeUserIdLabel")}</label>
+            <input
+              id="claude-user-id"
+              required
+              value={claudeUserId}
+              onChange={(event) => setClaudeUserId(event.target.value)}
+              placeholder={t("claudeUserIdPlaceholder")}
+            />
+            <p className="muted">
+              <a href="https://claude.ai/settings/account" target="_blank" rel="noopener noreferrer">claude.ai/settings/account</a>
+              {" · "}
+              {t("claudeUserIdGuide")}
+            </p>
+          </>
+        ) : (
+          <>
+            <label className="field-label" htmlFor="access-token">{t("accessTokenLabel")}</label>
+            <textarea
+              id="access-token"
+              required
+              value={accessToken}
+              onChange={(event) => setAccessToken(event.target.value)}
+              placeholder={t("accessTokenPlaceholder")}
+            />
+            <label className="checkbox-row">
+              <input checked={forceRecharge} onChange={(event) => setForceRecharge(event.target.checked)} type="checkbox" />
+              {t("forceRecharge")}
+            </label>
+          </>
+        )}
+        <button className="primary-button" disabled={isSubmitDisabled} type="submit">{t("confirmRecharge")}</button>
       </form>
 
       {taskStatus && (
@@ -483,7 +552,8 @@ function CardStatusPanel({ status, language, t }: { status: CardStatusResponse; 
       </div>
       <div className="card-status-rows">
         <CardStatusField highlight={Boolean(status.used_email?.trim())} label={t("rechargeAccount")} value={display.accountText} />
-        <CardStatusField label={t("stockStatus")} value={display.stockText} />
+        <CardStatusField label={t("rechargeProduct")} value={display.productName} />
+        {display.stockText && <CardStatusField label={t("stockStatus")} value={display.stockText} />}
       </div>
     </div>
   );
@@ -507,6 +577,10 @@ function StatusRows({ taskStatus, t }: { taskStatus: TaskStatusResponse; t: Tran
       {taskStatus.error && <span>{t("errorLabel", { error: taskStatus.error })}</span>}
     </div>
   );
+}
+
+function rechargeProductFromCard(status: CardStatusResponse): RechargeProduct {
+  return status.product_api_type?.trim().toLowerCase() === "claude" ? "claude" : "gpt";
 }
 
 function getErrorText(error: unknown, t: Translator): string {

@@ -19,10 +19,16 @@ async def create_task(
     payload: CreateTaskRequest,
     upstream: UpstreamClient = Depends(get_upstream_client),
 ) -> Any:
+    request_body = payload.model_dump(exclude_none=True)
+    if request_body.get("org_id"):
+        request_body = {
+            "card_key": request_body["card_key"],
+            "org_id": request_body["org_id"],
+        }
     return await upstream.request(
         "POST",
         "/api/tasks",
-        payload.model_dump(),
+        request_body,
     )
 
 

@@ -1,18 +1,23 @@
-import type { CardStatusResponse } from "./types";
+import type { CardStatusResponse, ProductApiType } from "./types";
 import { DEFAULT_LANGUAGE, translate, type Language } from "./i18n";
 
 export interface CardStatusDisplay {
   statusText: string;
   accountText: string;
-  stockText: string;
+  productName: string;
+  productText: string;
+  stockText: string | null;
   tone: "ok" | "blocked";
 }
 
 export function toCardStatusDisplay(status: CardStatusResponse, language: Language = DEFAULT_LANGUAGE): CardStatusDisplay {
+  const productName = normalizeProductType(status.product_api_type, language);
   return {
     statusText: normalizeCardStatus(status, language),
     accountText: normalizeText(status.used_email, translate(language, "notReturned")),
-    stockText: status.stock_level ? translate(language, "stockPrefix", { stock: status.stock_level }) : translate(language, "stockUnknown"),
+    productName,
+    productText: translate(language, "productType", { product: productName }),
+    stockText: normalizeStockText(status, language),
     tone: status.available ? "ok" : "blocked"
   };
 }
@@ -30,4 +35,21 @@ function normalizeCardStatus(status: CardStatusResponse, language: Language): st
 
 function normalizeText(value: string | undefined, fallback: string): string {
   return value?.trim() || fallback;
+}
+
+function normalizeProductType(value: ProductApiType | undefined, language: Language): string {
+  const productType = value?.trim().toLowerCase();
+  if (productType === "gpt") return translate(language, "productGpt");
+  if (productType === "claude") return translate(language, "productClaude");
+  return productType || translate(language, "unknown");
+}
+
+function normalizeStockText(status: CardStatusResponse, language: Language): string | null {
+  if (status.stock_level) {
+    return translate(language, "stockPrefix", { stock: status.stock_level });
+  }
+  if (status.product_api_type?.trim().toLowerCase() === "claude") {
+    return null;
+  }
+  return translate(language, "stockUnknown");
 }

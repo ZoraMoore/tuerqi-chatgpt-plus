@@ -305,6 +305,39 @@ h1 {
   font-weight: 800;
 }
 
+.segmented-field {
+  display: grid;
+  gap: 10px;
+}
+
+.segmented-control {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid rgba(23, 32, 27, 0.12);
+  border-radius: 999px;
+  padding: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.segmented-button {
+  min-width: 92px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 16px;
+  background: transparent;
+  color: rgba(23, 32, 27, 0.7);
+  font-weight: 900;
+}
+
+.segmented-button.active {
+  background: #17201b;
+  color: #f8f2e7;
+}
+
 .checkbox-row {
   display: flex;
   align-items: center;
